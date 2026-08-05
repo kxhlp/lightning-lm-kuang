@@ -849,7 +849,7 @@ bool LidarLoc::Localize(SE3& pose, double& confidence, CloudPtr input, CloudPtr 
     //if (!tgt->empty()) {
     //    pcl::io::savePCDFile("./data/tgt.pcd", *tgt);
     //}
-    auto tgt = ndt->getInputTarget();  //by kuang 修改bug：点云数据出错时，导致定位程序奔溃
+    auto tgt = ndt->getInputTarget();  //by kuang 2026.08.05 修改bug：点云数据出错时，导致定位程序奔溃
     if (!tgt->empty()) {
         CloudPtr tgt_copy(new PointCloudType(*tgt));
         tgt_copy->height = 1;
