@@ -10,6 +10,7 @@
 #include "common/nav_state.h"
 #include "common/timed_pose.h"
 #include "core/localization/localization_result.h"
+#include "core/lio/voxel_tracker.h"
 #include "core/maps/tiled_map.h"
 
 #include "pclomp/ndt_omp_impl.hpp"
@@ -63,6 +64,12 @@ class LidarLoc {
 
         double max_update_cache_dis_ = 30.0;  // 更新动态图层的缓冲距离
         std::string recover_pose_path_ = "./data/recover_pose.txt";
+
+        /// 移动物体检测配置
+        bool enable_motion_filter_ = false;              // 是否启用移动物体过滤
+        float motion_filter_resolution_ = 0.3f;          // 体素分辨率 (m)
+        float motion_filter_speed_thresh_ = 0.3f;        // 移动速度阈值 (m/s)
+        int motion_filter_min_hits_ = 3;                // 判定为静态的最小命中次数
     };
 
     explicit LidarLoc(Options options = Options());
@@ -263,6 +270,12 @@ class LidarLoc {
     bool has_set_pose_ = false;  // 外部set_pose标志位，若存在则本次动态图层不落盘
 
     std::ofstream recover_pose_out_;
+
+    /// 移动物体检测模块
+    std::unique_ptr<VoxelTracker> voxel_tracker_ = nullptr;
+    VoxelTrackerOptions voxel_tracker_options_;
+    SE3 last_filter_pose_;  // 上一次用于过滤的位姿
+    bool last_filter_pose_set_ = false;
 };
 
 }  // namespace lightning::loc

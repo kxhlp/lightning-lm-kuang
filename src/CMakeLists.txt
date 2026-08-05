@@ -10,6 +10,7 @@ add_library(${PROJECT_NAME}.libs SHARED
         core/lio/eskf.cc
         core/lio/laser_mapping.cc
         core/lio/pointcloud_preprocess.cc
+        core/lio/voxel_tracker.cc
         core/loop_closing/loop_closing.cc
 
         core/g2p5/g2p5_map.cc

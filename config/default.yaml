@@ -42,7 +42,12 @@ fasterlio:
   min_pts: 500
   imu_filter: false
   proj_kfs: false
-
+  
+  enable_motion_filter: true
+  motion_filter_resolution: 0.3        # 体素分辨率 (m)
+  motion_filter_speed_thresh: 0.3      # 移动速度阈值 (m/s)
+  motion_filter_min_hits: 3            # 判定静态的最小命中次数
+  motion_filter_publish_dynamic: false  # 是否发布动态点云
 
 g2p5:
   esti_floor: false   # 是否动态估计地面
@@ -99,6 +104,12 @@ lidar_loc:
   update_lidar_loc_score: 2.5
   loc_on_kf: true
   try_self_extrap: false
+  
+  enable_motion_filter: true
+  motion_filter_resolution: 0.3        # 体素分辨率 (m)
+  motion_filter_speed_thresh: 0.3      # 移动速度阈值 (m/s)
+  motion_filter_min_hits: 3            # 判定静态的最小命中次数
+  
 maps:
   delete_when_unload: false
   dyn_cloud_policy: persistent

@@ -13,6 +13,7 @@
 #include "core/ivox3d/ivox3d.h"
 #include "core/lio/eskf.hpp"
 #include "core/lio/imu_processing.hpp"
+#include "core/lio/voxel_tracker.h"
 #include "pointcloud_preprocess.h"
 
 #include "livox_ros_driver2/msg/custom_msg.hpp"
@@ -47,6 +48,13 @@ class LaserMapping {
 
         bool proj_kfs_ = false;
         int max_proj_kfs_ = 5;
+
+        /// 移动物体检测配置
+        bool enable_motion_filter_ = false;              // 是否启用移动物体过滤
+        float motion_filter_resolution_ = 0.3f;          // 体素分辨率 (m)
+        float motion_filter_speed_thresh_ = 0.3f;       // 移动速度阈值 (m/s)
+        int motion_filter_min_hits_ = 3;                // 判定为静态的最小命中次数
+        bool motion_filter_publish_dynamic_ = false;   // 是否发布动态物体点云
     };
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -100,13 +108,29 @@ class LaserMapping {
         }
     }
 
+    /// 获取去畸变后的点云
     CloudPtr GetScanUndist() const { return scan_undistort_; }
     CloudPtr GetProjCloud();
 
     /// 获取最新的点云
     CloudPtr GetRecentCloud();
 
+    /// 获取关键帧列表
     std::vector<Keyframe::Ptr> GetAllKeyframes() { return all_keyframes_; }
+
+    /// 获取动态物体点云（可选功能）
+    CloudPtr GetDynamicCloud() const { return dynamic_cloud_; }
+
+    /// 是否启用了移动物体过滤
+    bool IsMotionFilterEnabled() const { return options_.enable_motion_filter_; }
+
+    /// 获取移动物体检测统计信息
+    VoxelTracker::Statistics GetVoxelTrackerStats() const {
+        if (voxel_tracker_) {
+            return voxel_tracker_->GetStatistics();
+        }
+        return VoxelTracker::Statistics{0, 0, 0, 0, 0};
+    }
 
     /**
      * 计算全局地图
@@ -223,6 +247,12 @@ class LaserMapping {
     bool use_aa_ = false;  // use anderson acceleration?
 
     std::list<Keyframe::Ptr> proj_kfs_;  // 投影到当前帧的关键帧
+
+    /// 移动物体检测模块
+    std::unique_ptr<VoxelTracker> voxel_tracker_ = nullptr;
+    VoxelTrackerOptions voxel_tracker_options_;
+    std::vector<char> last_dynamic_mask_;  // 上一帧的动态点掩码
+    CloudPtr dynamic_cloud_{new PointCloudType()};  // 动态物体点云（可选）
 
     std::shared_ptr<ui::PangolinWindow> ui_ = nullptr;
 };

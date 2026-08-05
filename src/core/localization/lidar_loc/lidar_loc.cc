@@ -79,6 +79,21 @@ bool LidarLoc::Init(const std::string& config_path) {
     options_.with_height_ = yaml.GetValue<bool>("loop_closing", "with_height");
     options_.try_self_extrap_ = yaml.GetValue<bool>("lidar_loc", "try_self_extrap");
 
+    // 移动物体检测配置
+    options_.enable_motion_filter_ = yaml.GetValue<bool>("lidar_loc", "enable_motion_filter", false);
+    options_.motion_filter_resolution_ = yaml.GetValue<float>("lidar_loc", "motion_filter_resolution", 0.3f);
+    options_.motion_filter_speed_thresh_ = yaml.GetValue<float>("lidar_loc", "motion_filter_speed_thresh", 0.3f);
+    options_.motion_filter_min_hits_ = yaml.GetValue<int>("lidar_loc", "motion_filter_min_hits", 3);
+
+    if (options_.enable_motion_filter_) {
+        voxel_tracker_options_.resolution = options_.motion_filter_resolution_;
+        voxel_tracker_options_.speed_threshold = options_.motion_filter_speed_thresh_;
+        voxel_tracker_options_.min_hits_for_static = options_.motion_filter_min_hits_;
+        voxel_tracker_ = std::make_unique<VoxelTracker>(voxel_tracker_options_);
+        LOG(INFO) << "LidarLoc motion filter enabled: resolution=" << voxel_tracker_options_.resolution
+                  << "m, speed_threshold=" << voxel_tracker_options_.speed_threshold << "m/s";
+    }
+
     lidar_loc::grid_search_angle_step = yaml.GetValue<double>("lidar_loc", "grid_search_angle_step");
     lidar_loc::grid_search_angle_range = yaml.GetValue<double>("lidar_loc", "grid_search_angle_range");
 
@@ -456,11 +471,85 @@ void LidarLoc::Align(const CloudPtr& input) {
         LOG(WARNING) << "assign DR pose failed";
     }
 
+    /// ========== 移动物体检测与过滤（定位场景） ==========
+    CloudPtr filtered_input = input;
+    SE3 filter_pose;
+    bool filter_pose_set = false;
+
+    if (options_.enable_motion_filter_ && voxel_tracker_ && loc_inited_) {
+        // 定位已初始化，使用上一次定位结果作为初值
+        filter_pose = current_abs_pose_;
+        filter_pose_set = true;
+
+        auto det_result = voxel_tracker_->DetectAndFilter(
+            input,
+            filter_pose,
+            current_time
+        );
+
+        if (det_result.dynamic_point_count > 0) {
+            int before_pts = input->size();
+
+            // 创建静态点云
+            CloudPtr static_cloud(new PointCloudType());
+            static_cloud->reserve(before_pts - det_result.dynamic_point_count);
+
+            for (size_t i = 0; i < input->size(); ++i) {
+                if (!det_result.is_dynamic[i]) {
+                    static_cloud->push_back(input->points[i]);
+                }
+            }
+
+            filtered_input = static_cloud;
+
+            LOG(INFO) << "Loc motion filter: removed " << det_result.dynamic_point_count
+                      << "/" << before_pts << " dynamic points ("
+                      << std::fixed << std::setprecision(1) << det_result.dynamic_ratio * 100 << "%)";
+        }
+
+        last_filter_pose_ = filter_pose;
+        last_filter_pose_set_ = true;
+    } else if (options_.enable_motion_filter_ && voxel_tracker_ && !loc_inited_) {
+        // 定位未初始化，使用 DR 预测的位姿
+        if (current_dr_pose_set_) {
+            filter_pose = current_dr_pose_;
+            filter_pose_set = true;
+
+            auto det_result = voxel_tracker_->DetectAndFilter(
+                input,
+                filter_pose,
+                current_time
+            );
+
+            if (det_result.dynamic_point_count > 0) {
+                int before_pts = input->size();
+
+                CloudPtr static_cloud(new PointCloudType());
+                static_cloud->reserve(before_pts - det_result.dynamic_point_count);
+
+                for (size_t i = 0; i < input->size(); ++i) {
+                    if (!det_result.is_dynamic[i]) {
+                        static_cloud->push_back(input->points[i]);
+                    }
+                }
+
+                filtered_input = static_cloud;
+
+                LOG(INFO) << "Loc init motion filter: removed " << det_result.dynamic_point_count
+                          << "/" << before_pts << " dynamic points";
+            }
+
+            last_filter_pose_ = filter_pose;
+            last_filter_pose_set_ = true;
+        }
+    }
+    /// ========== 移动物体检测结束 ==========
+
     /// 1. 车辆静止处理
     if (parking_ && loc_inited_) {
         LOG(INFO) << "车辆静止，不做匹配";
 
-        UpdateState(input);
+        UpdateState(filtered_input);
         current_abs_pose_ = last_abs_pose_;
         lidar_loc_pose_queue_.emplace_back(current_time, current_abs_pose_);
 
@@ -483,7 +572,7 @@ void LidarLoc::Align(const CloudPtr& input) {
 
         if (initial_pose_set_) {
             /// 尝试在给定点初始化
-            if (InitWithFP(input, initial_pose_)) {
+            if (InitWithFP(filtered_input, initial_pose_)) {
                 LOG(INFO) << "init with external pose: " << initial_pose_.translation().transpose();
                 initial_pose_set_ = false;
                 return;
@@ -512,7 +601,7 @@ void LidarLoc::Align(const CloudPtr& input) {
             bool fp_init_success = false;
             for (const auto& fp : all_fps) {
                 map_->LoadOnPose(fp.pose_);
-                if (InitWithFP(input, fp.pose_)) {
+                if (InitWithFP(filtered_input, fp.pose_)) {
                     LOG(INFO) << "init with fp: " << fp.name_;
                     fp_init_success = true;
                     break;
@@ -605,7 +694,7 @@ void LidarLoc::Align(const CloudPtr& input) {
     /// 注意load on pose存在滞后，优先load on DR
     map_->LoadOnPose(guess_from_lo);
 
-    loc_success_lo = Localize(current_pose_esti, fitness_score, input, output_cloud);  // LO 那个肯定会算
+    loc_success_lo = Localize(current_pose_esti, fitness_score, filtered_input, output_cloud);  // 使用过滤后的点云
     double score_lo = fitness_score;
 
     SE3 res_of_lo = current_pose_esti;
@@ -740,9 +829,9 @@ void LidarLoc::Align(const CloudPtr& input) {
           options_.update_kf_dis_) ||
          fabs(current_time - last_dyn_upd_pose_.timestamp_) > options_.update_kf_time_)) {
         if (score_cond /*  || update_cache_dis_ < options_.max_update_cache_dis_ */) {
-            // LOG(INFO) << "passing through z filter, input:" << input->size();
+            // LOG(INFO) << "passing through z filter, input:" << filtered_input->size();
             pcl::PassThrough<PointType> pass;
-            pass.setInputCloud(input);
+            pass.setInputCloud(filtered_input);
 
             pass.setFilterFieldName("z");
             pass.setFilterLimits(0.5, options_.filter_z_max_);
