@@ -117,6 +117,10 @@ bool SlamSystem::Init(const std::string& yaml_path) {
             "lightning/save_map", [this](const SaveMapService::Request::SharedPtr& req,
                                          SaveMapService::Response::SharedPtr res) { SaveMap(req, res); });
 
+        // 动态点云 publisher: 给 RViz 用, 评估 motion filter 效果
+        dynamic_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>(
+            "lightning/dynamic_cloud", 10);
+
         LOG(INFO) << "online slam node has been created.";
     }
 
@@ -257,6 +261,9 @@ void SlamSystem::ProcessLidar(const sensor_msgs::msg::PointCloud2::SharedPtr& cl
         return;
     }
 
+    // 发布动态点云
+    PublishDynamicCloud(ToSec(cloud->header.stamp));
+
     if (options_.with_loop_closing_) {
         lc_->AddKF(cur_kf_);
     }
@@ -289,6 +296,13 @@ void SlamSystem::ProcessLidar(const livox_ros_driver2::msg::CustomMsg::SharedPtr
         return;
     }
 
+    // 发布动态点云
+    double stamp = 0.0;
+    if (cloud->points.size() > 0) {
+        stamp = ToSec(cloud->header.stamp);
+    }
+    PublishDynamicCloud(stamp);
+
     if (options_.with_loop_closing_) {
         lc_->AddKF(cur_kf_);
     }
@@ -300,6 +314,30 @@ void SlamSystem::ProcessLidar(const livox_ros_driver2::msg::CustomMsg::SharedPtr
     if (ui_) {
         ui_->UpdateKF(cur_kf_);
     }
+}
+
+void SlamSystem::PublishDynamicCloud(double timestamp) {
+    if (!dynamic_pub_ || lio_ == nullptr) {
+        return;
+    }
+
+    auto dyn = lio_->GetDynamicCloud();
+    if (!dyn || dyn->empty()) {
+        return;
+    }
+
+    sensor_msgs::msg::PointCloud2 msg;
+    pcl::toROSMsg(*dyn, msg);
+
+    // 用当前帧时间戳
+    if (timestamp > 0.0) {
+        msg.header.stamp = rclcpp::Time(static_cast<int64_t>(timestamp * 1e9));
+    } else {
+        msg.header.stamp = node_->now();
+    }
+    msg.header.frame_id = "camera_init";
+
+    dynamic_pub_->publish(msg);
 }
 
 void SlamSystem::Spin() {

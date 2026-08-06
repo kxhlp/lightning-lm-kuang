@@ -1,4 +1,17 @@
 1、在8G内存的x86机器上编译，内存很容易爆掉，导致编译失败
 --使用命令：MAKEFLAGS="-j2" colcon build 限制编译核心数量
 
-2、
+2、source install/setup.bash 
+
+3、建图：
+ros2 run lightning run_slam_online --config ./config/default_nclt.yaml
+
+4、播放bag
+ros2 bag play 20130110
+
+5、保存地图：（保存地址为data/new_map）
+ros2 service call /lightning/save_map lightning/srv/SaveMap "{map_id: new_map}"
+
+6、定位：
+ros2 run lightning run_loc_online --config ./config/default_nclt.yaml
+

@@ -84,22 +84,6 @@ bool LaserMapping::LoadParamsFromYAML(const std::string &yaml_file) {
         p_imu_->SetUseIMUFilter(use_imu_filter);
         options_.proj_kfs_ = yaml["fasterlio"]["proj_kfs"].as<bool>();
 
-        // 移动物体检测配置
-        options_.enable_motion_filter_ = yaml["fasterlio"]["enable_motion_filter"].as<bool>(false);
-        options_.motion_filter_resolution_ = yaml["fasterlio"]["motion_filter_resolution"].as<float>(0.3f);
-        options_.motion_filter_speed_thresh_ = yaml["fasterlio"]["motion_filter_speed_thresh"].as<float>(0.3f);
-        options_.motion_filter_min_hits_ = yaml["fasterlio"]["motion_filter_min_hits"].as<int>(3);
-        options_.motion_filter_publish_dynamic_ = yaml["fasterlio"]["motion_filter_publish_dynamic"].as<bool>(false);
-
-        if (options_.enable_motion_filter_) {
-            voxel_tracker_options_.resolution = options_.motion_filter_resolution_;
-            voxel_tracker_options_.speed_threshold = options_.motion_filter_speed_thresh_;
-            voxel_tracker_options_.min_hits_for_static = options_.motion_filter_min_hits_;
-            voxel_tracker_ = std::make_unique<VoxelTracker>(voxel_tracker_options_);
-            LOG(INFO) << "Motion filter enabled: resolution=" << voxel_tracker_options_.resolution
-                      << "m, speed_threshold=" << voxel_tracker_options_.speed_threshold << "m/s";
-        }
-
     } catch (...) {
         LOG(ERROR) << "bad conversion";
         return false;
@@ -266,50 +250,6 @@ bool LaserMapping::Run() {
         LOG(WARNING) << "Too few points, skip this scan!" << scan_undistort_->size() << ", " << scan_down_body_->size();
         return false;
     }
-
-    /// ========== 移动物体检测与过滤 ==========
-    if (options_.enable_motion_filter_ && voxel_tracker_ && flg_EKF_inited_) {
-        auto det_result = voxel_tracker_->DetectAndFilter(
-            scan_down_body_, 
-            state_point_.GetPose(), 
-            measures_.lidar_end_time_
-        );
-
-        if (det_result.dynamic_point_count > 0) {
-            // 统计过滤前后的点数
-            int before_pts = scan_down_body_->size();
-
-            // 创建静态点云
-            CloudPtr static_cloud(new PointCloudType());
-            static_cloud->reserve(before_pts - det_result.dynamic_point_count);
-
-            // 收集静态点
-            for (size_t i = 0; i < scan_down_body_->size(); ++i) {
-                if (!det_result.is_dynamic[i]) {
-                    static_cloud->push_back(scan_down_body_->points[i]);
-                }
-            }
-
-            // 可选：收集动态点云用于可视化
-            if (options_.motion_filter_publish_dynamic_) {
-                dynamic_cloud_->clear();
-                for (size_t i = 0; i < scan_down_body_->size(); ++i) {
-                    if (det_result.is_dynamic[i]) {
-                        dynamic_cloud_->push_back(scan_down_body_->points[i]);
-                    }
-                }
-            }
-
-            // 替换为过滤后的点云
-            scan_down_body_ = static_cloud;
-            cur_pts = scan_down_body_->size();
-
-            LOG(INFO) << "Motion filter: removed " << det_result.dynamic_point_count 
-                      << "/" << before_pts << " dynamic points (" 
-                      << std::fixed << std::setprecision(1) << det_result.dynamic_ratio * 100 << "%)";
-        }
-    }
-    /// ========== 移动物体检测结束 ==========
 
     scan_down_world_->resize(cur_pts);
     nearest_points_.resize(cur_pts);

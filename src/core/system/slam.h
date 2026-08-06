@@ -5,6 +5,7 @@
 #ifndef LIGHTNING_SLAM_H
 #define LIGHTNING_SLAM_H
 
+#include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -16,6 +17,7 @@
 #include "common/eigen_types.h"
 #include "common/imu.h"
 #include "common/keyframe.h"
+#include "common/point_def.h"
 
 namespace lightning {
 
@@ -101,6 +103,11 @@ class SlamSystem {
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_ = nullptr;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_ = nullptr;
     rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr livox_sub_ = nullptr;
+
+    // 动态物体点云 publisher (用于评估 motion filter)
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr dynamic_pub_ = nullptr;
+
+    void PublishDynamicCloud(double timestamp);
 };
 }  // namespace lightning
 

@@ -55,6 +55,7 @@ class LaserMapping {
         float motion_filter_speed_thresh_ = 0.3f;       // 移动速度阈值 (m/s)
         int motion_filter_min_hits_ = 3;                // 判定为静态的最小命中次数
         bool motion_filter_publish_dynamic_ = false;   // 是否发布动态物体点云
+        float motion_filter_max_ratio_ = 0.5f;         // 动态点比例超过此值则放弃过滤
     };
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW

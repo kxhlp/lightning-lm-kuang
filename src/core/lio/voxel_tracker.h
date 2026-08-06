@@ -22,7 +22,7 @@
 #include <cmath>
 
 #include "common/eigen_types.h"
-#include "common/pointcloud.h"
+#include "common/point_def.h"
 
 namespace lightning {
 
@@ -90,7 +90,13 @@ struct VoxelTrackerOptions {
     double transient_threshold = 2.0;      // 短暂存在阈值 (s)
     bool enable_temporal_filtering = true;  // 是否启用时序滤波
     int temporal_window_size = 3;          // 时序滤波窗口大小
-    
+    // 新增：缓解误判参数
+    int warmup_frames = 5;                 // 启动期帧数（前 N 帧只记录不判定）
+    float min_displacement = 0.05f;        // 最小位移门限（m），低于此不计速度
+    int dynamic_votes_required = 3;        // 连续多少帧被判定为动态才标记为动态
+    int dynamic_to_static_decay = 5;      // 动态体素多少次被重新观测为静态才能"翻案"
+    float max_ratio_filter = 0.5f;         // 动态点比例超过此值视为检测失败, 不剔除任何点
+
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
