@@ -310,11 +310,19 @@ bool LaserMapping::Run() {
     /// 更新kf_for_imu
     kf_imu_ = kf_;
     if (!measures_.imu_.empty()) {
-        double t = measures_.imu_.back()->timestamp;
-        for (auto &imu : imu_buffer_) {
-            double dt = imu->timestamp - t;
-            kf_imu_.Predict(dt, p_imu_->Q_, imu->angular_velocity, imu->linear_acceleration);
-            t = imu->timestamp;
+        double t = measures_.imu_.back()->timestamp;    
+        //for (auto &imu : imu_buffer_) {
+        //    double dt = imu->timestamp - t;
+        //    kf_imu_.Predict(dt, p_imu_->Q_, imu->angular_velocity, imu->linear_acceleration);
+        //    t = imu->timestamp;
+        {                                     
+            UL lock(mtx_buffer_);                    //change by kuang,为 imu_buffer_并发访问添加互斥锁
+            for (auto &imu : imu_buffer_) {
+                if (!imu) { continue; }
+                double dt = imu->timestamp - t;
+                kf_imu_.Predict(dt, p_imu_->Q_, imu->angular_velocity, imu->linear_acceleration);
+                t = imu->timestamp;
+            }
         }
     }
 
@@ -477,6 +485,7 @@ void LaserMapping::ProcessPointCloud2(CloudPtr cloud) {
 }
 
 bool LaserMapping::SyncPackages() {
+    UL lock(mtx_buffer_);   //add by kuang
     if (lidar_buffer_.empty() || imu_buffer_.empty()) {
         LOG(INFO) << "lidar or imu is empty";
         return false;
